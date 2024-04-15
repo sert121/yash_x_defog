@@ -7,28 +7,9 @@
 ```finetune.py``` hosts the code to run finetuning on the curated dataset.  
 
 
-To run the finetuning script:
+To run the finetuning script, run the following command with custom args(if required). The script uses Fire, so it takes automatically converts the arguments we pass in.   
+Example usage:  
 ```
-base_model: defog/sqlcoder-7b-2
-data_path: ./abs.json
-output_dir: ./lora-defog
-batch_size: 16
-micro_batch_size: 4
-num_epochs: 10
-learning_rate: 0.0003
-cutoff_len: 256
-val_set_size: 10
-lora_r: 128
-lora_alpha: 128
-lora_dropout: 0.05
-lora_target_modules: ['q_proj', 'v_proj', 'k_proj', 'o_proj', 'gate_proj', 'up_proj', 'down_proj', 'lm_head']
-train_on_inputs: True
-add_eos_token: False
-group_by_length: False
-wandb_project: yashxdefog
-wandb_run_name: sqlcoder-lora-defog-1
-wandb_watch: 
-wandb_log_model: 
-resume_from_checkpoint: False
-prompt template: alpaca
+python3 finetuning.py --data_path 'combined_data_v2.json' --base_model 'defog/sqlcoder-7b-2' --wandb_run_name: sqlcoder-lora-defog-2 --wandb_project yashxdefog
 ```
+
