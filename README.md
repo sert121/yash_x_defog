@@ -6,7 +6,13 @@
 ```common_helpers.py``` contains the helper functions that include preprocessing, validation and post-processing steps for generating data.   
 ```finetune.py``` hosts the code to run finetuning on the curated dataset.  
 
+### Synthetic Data generation
+Example usage:  
+```
+python3 synthgenerate.py
+```
 
+### Finetuning
 To run the finetuning script, run the following command with custom args(if required). The script uses Fire, so it takes automatically converts the arguments we pass in.   
 
 Example usage:  
