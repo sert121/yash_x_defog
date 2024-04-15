@@ -19,7 +19,7 @@ Can be added as a separate flag when preprocessing data.
 ```
 '--samples'       | Number of samples 
 '--method'        | Method of Generation:  'k_shot_generation' or 'follow_up_generation'
-'--output_path',  | Output path for storing the combined responses : './qa_collection/combined_v3.json' # the finetuning script reads the data from this dir
+'--output_path',  | Output path for storing the combined responses : 'combined_v3.json' # the finetuning script reads the data from this dir
 '--input_examples'| Golden queries or reference set : 'macmillan_golden_queries.csv' 
 '--metadata'      | Metadata (table) used to generate more accuracte sql: 'macmillan_md.csv'
 ```
