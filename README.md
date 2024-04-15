@@ -8,6 +8,7 @@
 
 
 To run the finetuning script, run the following command with custom args(if required). The script uses Fire, so it takes automatically converts the arguments we pass in.   
+
 Example usage:  
 ```
 python3 finetuning.py --data_path 'combined_data_v2.json' --base_model 'defog/sqlcoder-7b-2' --wandb_run_name: sqlcoder-lora-defog-2 --wandb_project yashxdefog
