@@ -13,6 +13,8 @@ Example usage:
 python3 synthgenerate.py
 ```
 Few args that can be used to customize the generation process. Rest included in the file. 
+Note: for simplicity the ```qa_collection``` folder is read recursively when ```combine_json_files``` is called by the main function in synthgenerate. 
+Can be added as a separate flag when preprocessing data.
 
 ```
 '--samples'       | Number of samples 
