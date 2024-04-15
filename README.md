@@ -15,11 +15,11 @@ python3 synthgenerate.py
 Few args that can be used to customize the generation process. Rest included in the file. 
 
 ```
-'--samples' : Number of samples 
-'--method':  'k_shot_generation' or 'follow_up_generation'
-'--output_path', : './qa_collection/combined_v3.json' # the finetuning script reads the data from this dir
-'--input_examples' : default='macmillan_golden_queries.csv', 'input examples'
-'--metadata' :  default='macmillan_md.csv', help='metadata file')
+'--samples'       | Number of samples 
+'--method'        | Method of Generation:  'k_shot_generation' or 'follow_up_generation'
+'--output_path',  | Output path for storing the combined responses : './qa_collection/combined_v3.json' # the finetuning script reads the data from this dir
+'--input_examples'| Golden queries or reference set : 'macmillan_golden_queries.csv' 
+'--metadata'      | Metadata (table) used to generate more accuracte sql: 'macmillan_md.csv'
 ```
 
 ### Finetuning
