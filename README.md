@@ -7,9 +7,19 @@
 ```finetune.py``` hosts the code to run finetuning on the curated dataset.  
 
 ### Synthetic Data generation
+The synthgenerate file generates k-shot examples and combines then in the form of input-output pairs in a file like (```combined_data.json```) to be ready to be processed for finetuning purposes. To keep things consistent we use a alpaca-dataset format that includes instruction, output and 
 Example usage:  
 ```
 python3 synthgenerate.py
+```
+Few args that can be used to customize the generation process. Rest included in the file. 
+
+```
+'--samples' : Number of samples 
+'--method':  'k_shot_generation' or 'follow_up_generation'
+'--output_path', : './qa_collection/combined_v3.json' # the finetuning script reads the data from this dir
+'--input_examples' : default='macmillan_golden_queries.csv', 'input examples'
+'--metadata' :  default='macmillan_md.csv', help='metadata file')
 ```
 
 ### Finetuning
