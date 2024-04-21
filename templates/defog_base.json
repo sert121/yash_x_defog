@@ -1,0 +1,6 @@
+{
+    "description": "Template used by defog.",
+    "prompt_input": "### Task\nGenerate a SQL query to answer [QUESTION]{instruction}[/QUESTION]\n\n### Instructions\n- If you cannot answer the question with the available database schema, return 'I do not know'\n\n### Database Schema\nThe query will run on a database with the following schema:\n{table_metadata_string}\n\n### Answer\nGiven the database schema, here is the SQL query that answers [QUESTION]{instruction}[/QUESTION]\n[SQL]\n",
+    "prompt_no_input": "### Task\nGenerate a SQL query to answer [QUESTION]{instruction}[/QUESTION]\n\n### Instructions\n- If you cannot answer the question with the available database schema, return 'I do not know'\n\n### Database Schema\nThe query will run on a database with the following schema:\n{table_metadata_string}\n\n### Answer\nGiven the database schema, here is the SQL query that answers [QUESTION]{instruction}[/QUESTION]\n[SQL]\n",
+    "response_split": "### Answer:"    
+}
