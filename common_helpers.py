@@ -8,8 +8,33 @@ import pandas as pd
 import sqlite3, random
 import string
 import glob
+import openai
+import os
+import jsonlines
+import psycopg2
+from func_timeout import func_timeout, FunctionTimedOut
+from dotenv import load_dotenv
+
+from typing import Tuple
+
+test_dbs, train_dbs = None, None
+load_dotenv()
 
 
+def delete_qa_files(directory):
+    
+    for filename in os.listdir(directory):
+        # Construct the full path
+        full_path = os.path.join(directory, filename)
+        
+        # Check if it's a file
+        if os.path.isfile(full_path):
+            # If it's a file, delete it
+            os.remove(full_path)
+    
+    print("Cleaned up cache files...")
+    
+            
 def open_csv_as_string(filename):
     """
     Open a CSV file and read its contents as a string.
@@ -47,15 +72,15 @@ def validate_sql_generation(sentence):
     """
     print("Validating SQL: ", sentence)
     try:
-        sqlglot.transpile(sentence)
+        s= sqlglot.transpile(sentence)
         
     except Exception as e:
         print(e)
         print(f"Error in parsing SQL: {sentence}")
-        return 0
-    return 1
+        return 0,sentence
+    return 1,s
 
-def preprocess_output(output, system_prompt, user_prompt, flag=''):
+def  preprocess_output(output, system_prompt, user_prompt, flag='', test_against_db=False, db_name='defog_data_private'):
     """
     Preprocess the output from the GPT model by removing any leading/trailing whitespaces and newlines.
     
@@ -74,9 +99,23 @@ def preprocess_output(output, system_prompt, user_prompt, flag=''):
     for question, sql_query in match:
         # print(question)
         # print(sql_query)
-        if validate_sql_generation(str(sql_query)) == True:
+
+        val,parsed_sql = validate_sql_generation(str(sql_query))
+        if val == True:
             count_valid += 1
-        val = validate_sql_generation(sql_query)
+        # val = validate_sql_generation(sql_query) # sql parsing validation
+
+        if test_against_db: # validate the query against the test db
+            # validate the query against the test db
+            print("Validating SQL query against test db...")
+            result,_ = test_valid_against_db(sql_query, db_name)
+            if result != 1:
+                val = 0
+                count_valid -= 1
+            elif result == 1:
+                val = 1
+            # print(" --- ")
+            pass
         qa_pair = [{'question': question, 'sql': sql_query, 'valid': val }]
         qa_pairs.append(qa_pair)
 
@@ -372,7 +411,6 @@ def create_testing_table(table_name='', data=''):
     num_records = 10  # Number of records to generate
     random_data = generate_random_data_for_table(table_name, num_records)  # step 1. generate random data
     
-    print(len(random_data))
     print("random data is generated")
     insert_random_data(cur, 'temp_achive_lp_sapling_combined_activations_ai', random_data) # step 2. insert random data
     cur.execute("SELECT * FROM temp_achive_lp_sapling_combined_activations_ai;") # example query to check the data
@@ -412,14 +450,119 @@ def validate_against_testdb(cur,queries):
     
     proportion = (valid_count / total_count)*100
     return proportion
+def test_valid_against_db(query, db_name='', validate_non_empty_results=False) -> Tuple[int, str]:
+    """
+    Test to check that SQL query is valid, empty results considered valid unless validate_non_empty_results=True
+    This is for checking on db's from defog_data/defog_data_private only
+    Implicitly requires constants.py imported as c from the folder above
+    """
+    def execute_query(cur, query):
+        cur.execute(query)
+        return pd.DataFrame(cur.fetchall(), columns=[desc[0] for desc in cur.description])
 
-def combine_json_files():
+    if train_dbs is None:
+
+        creds_local_pg = {
+                "user": os.getenv("PG_USER"),
+                "password": os.getenv("PG_PASSWORD"),
+                "host": os.getenv("PG_HOST"),
+                "port": os.getenv("PG_PORT"),
+            }
+
+        # test patterns
+        like_pattern = r"(?<!\\)%"
+        escape_percent = r"\\%"
+
+    try:
+        if db_name is not '':
+            print(" ..step 1: connecting to DB\n")
+            conn = psycopg2.connect(
+            dbname=db_name,
+            user=creds_local_pg["user"],
+            password=creds_local_pg["password"],
+            host=creds_local_pg["host"],
+            port=creds_local_pg["port"],
+            )
+            cur = conn.cursor()
+            escaped_query = re.sub(
+                like_pattern, escape_percent, query, flags=re.IGNORECASE
+            )  # ignore case of LIKE
+            
+            print(" ..step 2: sending queries \n")
+            results_df = func_timeout(
+                20, execute_query, args=(cur, escaped_query)
+            )
+            print(" ..step 3: results from test db \n")
+            print('results from db', results_df)
+            cur.close()  # close cursor
+            conn.close()  # close connection
+            
+            if validate_non_empty_results:
+                return (1, "-") if len(results_df) > 0 else (0, "Empty results")
+            else:
+                return (1, "-")
+        else:
+            print("Database not found")
+            return 0.0, "Database not found"
+
+
+    except Exception as e:  # If unable to run SQL on database, test fails
+        if "conn" in locals() or "conn" in globals():
+            conn.close()  # close connection if query fails/timeouts
+        print("Th error is here", str(e))
+        return 0, f"{e.__class__.__name__}: {e}"
+
+def convert_json_to_sql(json_file, db_name,create_table=False):
+
+    with open(json_file, 'r') as f:
+        data = json.load(f)
+        
+    sql_file_content = ""
+    for table_name, columns in data["table_metadata"].items():
+        sql_file_content += f'CREATE TABLE {table_name} (\n'
+        for column in columns:
+            if "primary key" in column["column_description"].lower():
+                sql_file_content += f'    {column["column_name"]} {column["data_type"]} PRIMARY KEY,\n'
+            else:
+                sql_file_content += f'    {column["column_name"]} {column["data_type"]},\n'
+        sql_file_content = sql_file_content[:-2] + "\n);\n\n"  # Removing the last comma and adding closing parenthesis and semi-colon
+    print(" -- ")
+    print(sql_file_content)
+    with open(f"./defog_data_private/{db_name}.sql", "w") as f:
+        f.write(sql_file_content)
+
+    if create_table:
+        if train_dbs is None and test_dbs is None:
+            # use dummy db for testing (elephantsql)
+            creds_local_pg = {
+                    "user": os.getenv("PG_USER"),
+                    "password": os.getenv("PG_PASSWORD"),
+                    "host": os.getenv("PG_HOST"),
+                }
+            test_dbs = {
+                    db_name: db_name,
+                }
+
+        conn = psycopg2.connect(
+        dbname=db_name,
+        user=creds_local_pg["user"],
+        password=creds_local_pg["password"],
+        host=creds_local_pg["host"],
+        )
+        cur = conn.cursor()
+        cur.execute(sql_file_content)
+
+
+
+def combine_json_files(table_metadata_string):
     data = []
     file_list = glob.glob('./qa_collection/qa_pairs*.jsonl')
     for file_path in file_list:
         with jsonlines.open(file_path) as reader:
             data.extend(reader)
     
+    delete_qa_files('./qa_collection/') # clean up qa intermediate files 
+
     print(len(data))
     data = [ d for d in data if type(d) != dict]
     # return data
@@ -429,6 +572,7 @@ def combine_json_files():
             d[0]['instruction'] = d[0]['question']
             d[0]['input'] = ''
             d[0]['output'] = d[0]['sql']
+            d[0]['table_metadata_string'] = table_metadata_string
             questions_cache.append(d[0]['question']) # storing the questions to avoid duplicates
 
             del d[0]['question']
@@ -447,9 +591,11 @@ if __name__ == "__main__":
     # read_jsonl('prompt_dict.jsonl')
 
     # filtered_df = pd.read_csv('macmillan_filtered_md.csv')
-    
+
     # statement = create_table_from_df(filtered_df)
-    
+
+    convert_json_to_sql('macmillan_md.json', 'ofilbttr', True)
+
     # run_sql_query(statement)
 
     # insert_data_into_table()
@@ -457,5 +603,4 @@ if __name__ == "__main__":
     # validate_against_testdb()
 
     # Process the combined data as needed
-    combined_data = combine_json_files()
-    dump_json([d[0] for d in combined_data], 'combined_data_v2.json')
+    # combined_data = combine_json_files()

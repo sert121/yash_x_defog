@@ -8,7 +8,7 @@ from dotenv import load_dotenv
 import jsonlines
 from common_helpers import open_csv_as_string, preprocess_output, combine_json_files, dump_json
 import argparse    
-
+from tqdm import tqdm
 import sqlite3
 import pandas as pd
 from sqlalchemy import create_engine
@@ -155,7 +155,7 @@ def filter_csv(df):
     df.drop(rows_to_drop.index, inplace=True)
     return df
 
-def synth_gen(examples='',metadata_string = '',method = 'k_shot_generation', flag = '', k_shot=5):
+def synth_gen(examples='',metadata_string = '',method = 'k_shot_generation', flag = '', k_shot=5, db_validation=False):
     qa_pairs = ''
     if method == 'k_shot_generation':            
         # sort by length of sql
@@ -187,7 +187,10 @@ def synth_gen(examples='',metadata_string = '',method = 'k_shot_generation', fla
         with open(f"{args.output_txt_dir}/output_{flag}_{d}.txt", "w") as f:
             f.write(qa_pairs)
 
-        preprocess_output(qa_pairs, system_prompt, user_prompt, flag)
+        if db_validation:
+            preprocess_output(qa_pairs, system_prompt, user_prompt, flag, test_against_db=True,db_name=args.test_db)
+        else:
+            preprocess_output(qa_pairs, system_prompt, user_prompt, flag)
 
     if method == 'follow_up_generation':
         # follow up generation
@@ -218,8 +221,11 @@ def synth_gen(examples='',metadata_string = '',method = 'k_shot_generation', fla
 
         with open(f"output_{flag}_{d}.txt", "w") as f:
             f.write(qa_pairs)
-
-        preprocess_output(qa_pairs, system_prompt, user_prompt, flag)
+        
+        if db_validation:
+            preprocess_output(qa_pairs, system_prompt, user_prompt, flag, test_against_db=True,db_name=args.test_db)
+        else:
+            preprocess_output(qa_pairs, system_prompt, user_prompt, flag)
 
 
     return qa_pairs
@@ -237,45 +243,54 @@ if __name__ == "__main__":
 
 
     parser = argparse.ArgumentParser(description="Synthetic Data Generation Script")
-
     # Adding the arguments
-    parser.add_argument('--samples', type=int, default=250, help='Number of samples')
+    parser.add_argument('--samples', type=int, default=500, help='Number of samples')
     parser.add_argument('--method', default='k_shot_generation', help='k_shot_generation or follow_up_generation')
-    parser.add_argument('--output_path', type=str, default='./qa_collection/combined_v3.json', help='data output path')
-    parser.add_argument('--k_shot_flag',default=5, help='k-shot flag')
+    parser.add_argument('--output_path', type=str, default='./combined_v6.json', help='data output path')
+    parser.add_argument('--k_shot_flag',default=6, help='k-shot flag')
     parser.add_argument('--input_examples', type=str, default='macmillan_golden_queries.csv', help='input examples')
     parser.add_argument('--metadata', type=str, default='macmillan_md.csv', help='metadata file')
     parser.add_argument('--metadata_db', type=str, default='macmillan_md.db', help='temporary metadata db file')
+    parser.add_argument('--test_db', type=str, default='ofilbttr', help='testdb to validate the generated queries against')
     parser.add_argument('--prompt_version', type=str, default='v1', help='prompt version')
     parser.add_argument('--output_txt_dir', type=str, default='./gpt_raw_responses/', help='txt files to collect gpt responses')
-    
+    # parser.add_argument('--table_metadata_ddl_path', type=str, default='table_metadata_ddl', help='table metadata ddl statement in a text file')
+    parser.add_argument('--table_metadata_ddl_path', type=str, default='./defog_data_private/ofilbttr.sql', help='table metadata ddl statement in a text file')
+
     # Parse the arguments
     args = parser.parse_args()
 
-
-    examples = pd.read_csv('macmillan_golden_queries.csv') # read the golden queries/ few shot examples
     examples = pd.read_csv(args.input_examples) # read the golden queries/ few shot examples
-    # preprocess the golden queries 
-    metadata_df = csv_preprocess('macmillan_md.csv', 'macmillan_md.db', 'macmillan_md', turn_to_sql=False)
-    metadata_df = csv_preprocess(args.metadata, args.metadata_db, 'macmillan_md', turn_to_sql=False)
 
-    metadata_df.to_csv("macmillan_filtered_md.csv", index=False)
-
-    # read the metadata as a string
-    metadata_df_string = open_csv_as_string('macmillan_filtered_md.csv')
-    
+    if args.table_metadata_ddl_path == 'table_metadata_ddl':#default
+        # load the metadata table into a df, and create a string representation of the metadata
+        metadata_df = csv_preprocess(args.metadata, args.metadata_db, 'macmillan_md', turn_to_sql=False)
+        metadata_df.to_csv("macmillan_filtered_md.csv", index=False)
+        # read the metadata as a string
+        metadata_df_string = open_csv_as_string('macmillan_filtered_md.csv')
+    else:
+        try:
+            with open(args.table_metadata_ddl_path) as f:
+                metadata_df_string = f.read()
+                print("metadata string loaded")
+        except:
+            print("Please provide a valid path to the table metadata ddl file")
+            exit(1)
     # generate synthetic data [main]
     if args.method == 'k_shot_generation':  
-
         c = args.samples // 10
+        print(f"The number of samples is", args.samples)
         k = args.k_shot_flag
-        for flag in range(1, c): # num of samples : 25 x 10 = 250
-            synth_gen(examples=examples, metadata_string=metadata_df_string,k_shot=k,flag=str(flag)+f"_{k}shot_")
+        for flag in tqdm(range(1, c)): # num of samples : 25 x 10 = 250
+            # synth_gen(examples=examples, metadata_string=metadata_df_string,k_shot=k,flag=str(flag)+f"_{k}shot_")
+            synth_gen(examples=examples, metadata_string=metadata_df_string,k_shot=k,flag=str(flag)+f"_{k}shot_", db_validation=True)
     if args.method == 'follow_up_generation':
         # follow up generation
         for flag in range(1, args.samples): 
             synth_gen(examples=examples, metadata_string=metadata_df_string,method='follow_up_generation',flag=str(flag)+f"_followup_")
  
-    # combine the generated samples
-    combined_data = combine_json_files()
+    # combine the generated samples i.e QA pairs, with corresponding metadata string
+    combined_data = combine_json_files(table_metadata_string = metadata_df_string)
+    
+    print(f"number of samples generated: {len(combined_data)} ")
     dump_json([d[0] for d in combined_data], args.output_path)
