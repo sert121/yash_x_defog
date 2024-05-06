@@ -54,8 +54,25 @@ Always check the following when evaluating a SQL query:
 
 You need to respond with your evaluation on the confidence of correctness on a scale of 1-5, where 5 is very confident.
 '''
+
+
+    system_prompt_thinking = '''You are an expert and thoughtful SQL analyst that works for a company called Defog AI. Your role is to validate SQL queries given to you. 
+  
+Always check the following when evaluating a SQL query:
+1. Only use the table names and column names that are in the metadata schema. Do NOT use any other tables names or column names.
+2. Do NOT create a JOIN statement or query multiple tables if the question can be answered using only one table.
+3. When writing SELECT statements, always add the table alias as a prefix to the column name. For example, this SQL query is not valid: `SELECT a FROM table1 JOIN table2 ON table1.a = table2.a`. Instead, this query is correct: `SELECT table1.a FROM table1 JOIN table2 ON table1.a = table2.a`
+4. SELECT statements should include all columns that are in the ORDER BY statements. For example, if the ORDER BY statement is `ORDER BY column_name`, then the SELECT statement should include `column_name`
+5. Make sure that the GROUP BY statements do NOT contain an alias, and only contain original column names that exist in the schema.
+6. If creating GROUP BY statements, always include columns with `id` in the column name in the SELECT and GROUP BY statements to ensure uniqueness.
+7. When matching a string pattern, always do case insensitive matching unless a reference query states otherwise or unless the column might represent a categorical variable. You can chain multiple patterns using the OR operator. (e.g. LOWER(column_name) LIKE "%stringtomatch1%" OR LOWER(column_name) ILIKE "%stringtomatch2%")
+8. When a user asks for data by month, they are typically asking for data by both the month and year
+9. If the question cannot be answered given the database schema, always generate a query that says `SELECT 'Sorry, I could not answer that. Could you please rephrase your question?' AS answer;`. Do not give a closest approximation to the user's question. Do not use proxies for unavailable information.
+
+You need to think and respond with your evaluation, expressing if the query is poor, good, or excellent. 
+'''
     user_prompt = '''The SQL query to evaluate is: ```{sql_query}```. The database schema is represented in the following CSV string:
-```{table_metadata_ddl}```.  You need to respond with your evaluation of the query and express the confidence of correctness on a scale of 1-5, where 5 is very confident.'''
+```{table_metadata_ddl}```.  You need to respond with your evaluation of the query and express the confidence of correctness. Always provide rating in the form Rating:<insert rating>'''
 
     client = openai.Client()
 
@@ -63,18 +80,19 @@ You need to respond with your evaluation on the confidence of correctness on a s
         messages=[
  {
             'role': 'system',
-            'content': system_prompt
+            'content': system_prompt_thinking
         },
             {
                 "role": "user",
-                "content": user_prompt, # 
+                "content": user_prompt, 
             }
         ],
         model="gpt-4",
     )
 
     label = chat_completion.choices[0].message.content
-    return label
+    rating = label.split("Rating:")[1]
+    return label, rating
 
 def read_config(config_file):
     config = configparser.ConfigParser()
@@ -170,7 +188,7 @@ def load_baseline_coder():
 
 def train(
     base_model: str = "defog/sqlcoder-7b-2",  
-    data_path: str = "./combined_data_v3.json",
+    data_path: str = "./combined_data_v4.json",
     output_dir: str = "./lora-defog",
     # training hyperparams
     batch_size = 16,
@@ -203,7 +221,7 @@ def train(
     group_by_length: bool = False,  # faster, but produces an odd training loss curve
     # wandb params
     wandb_project: str = "yashxdefog",
-    wandb_run_name: str = f"sqlcoder-lora-defog-4",
+    wandb_run_name: str = f"sqlcoder-lora-defog-5   ",
     wandb_watch: str = "all",  # options: false | gradients | all
     wandb_log_model: str = "true",  # options: false | true
     resume_from_checkpoint: str = None,  # either training checkpoint or final adapter
@@ -471,13 +489,15 @@ def train(
             _,response_base = generate_query(data_point, BASELINE)
             _,response_finetuned = generate_query(data_point, model)
             response_gpt = query_gpt_model(data_point["instruction"],data_point["table_metadata_string"])
+            evalgpt, rating =  validate_sql_using_gpt(response_finetuned,data_point["table_metadata_string"])
 
             result = {
                 "instruction": instruction,
                 "response_baseline": response_base,
                 "response_finetuned": response_finetuned,
                 "response_gpt":response_gpt,
-                "evaluation_gpt" : validate_sql_using_gpt(response_finetuned,data_point["table_metadata_string"])
+                "evaluation_gpt" : evalgpt,
+                "rating_gpt": rating
             }
 
             with open("comparing_base_and_finetuned.jsonl", "a") as f:
